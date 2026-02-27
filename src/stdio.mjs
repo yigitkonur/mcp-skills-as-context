@@ -68,7 +68,7 @@ async function findSkillFolder(source, skillId) {
   const data = await resp.json();
   const tree = data.tree ?? [];
 
-  // Strategy 1: Exact match on folder name (existing behavior)
+  // 1. EXACT MATCH: folder name matches skillId exactly
   const exactCandidates = tree
     .filter((e) => e.type === "tree" && (e.path === skillId || e.path.endsWith(`/${skillId}`)))
     .map((e) => e.path);
@@ -77,72 +77,53 @@ async function findSkillFolder(source, skillId) {
     return { folderPath: exactCandidates.reduce((a, b) => (a.length <= b.length ? a : b)), error: null };
   }
 
-  // Strategy 2: Find folders containing a SKILL.md and match via suffix/substring/token-overlap.
-  // skills.sh often prepends verbs like "understanding-", "configuring-" to folder names,
-  // or rearranges tokens entirely (e.g., "calling-rust-from-tauri-frontend" → folder "tauri-calling-rust").
-  const skillMdEntries = tree.filter((e) => e.type === "blob" && /\/SKILL\.md$/i.test(e.path));
+  // 2. FIND ALL SKILL.md FILES and extract parent folder paths
+  const skillMdEntries = tree.filter((e) => e.type === "blob" && /SKILL\.md$/i.test(e.path));
 
-  const fuzzyMatches = [];
-  const skillTokens = new Set(skillId.split("-").filter(Boolean));
-
-  for (const entry of skillMdEntries) {
-    const parentPath = entry.path.replace(/\/SKILL\.md$/i, "");
-    const folderName = parentPath.split("/").pop() || "";
-
-    // Check substring containment first (fast path)
-    if (
-      skillId.endsWith(folderName) ||
-      folderName.endsWith(skillId) ||
-      skillId.includes(folderName) ||
-      folderName.includes(skillId)
-    ) {
-      fuzzyMatches.push({ path: parentPath, folderName, score: folderName.length + 100 });
-      continue;
-    }
-
-    // Token-overlap: if ALL folder tokens exist in skillId tokens, it's a match
-    const folderTokens = folderName.split("-").filter(Boolean);
-    if (folderTokens.length >= 2 && folderTokens.every((t) => skillTokens.has(t))) {
-      fuzzyMatches.push({ path: parentPath, folderName, score: folderTokens.length * 10 });
-      continue;
-    }
-
-    // Partial token overlap: ≥60% of folder tokens match AND ≥2 common tokens
-    if (folderTokens.length >= 2) {
-      const common = folderTokens.filter((t) => skillTokens.has(t));
-      if (common.length >= 2 && common.length / folderTokens.length >= 0.6) {
-        fuzzyMatches.push({ path: parentPath, folderName, score: common.length });
-      }
-    }
+  // 5. NO SKILL.md FOUND AT ALL
+  if (skillMdEntries.length === 0) {
+    return { folderPath: null, error: "No SKILL.md files found in repository" };
   }
 
-  if (fuzzyMatches.length > 0) {
-    // Prefer highest score (substring matches score 100+length, token matches score by token count)
-    fuzzyMatches.sort((a, b) => b.score - a.score);
-    return { folderPath: fuzzyMatches[0].path, error: null };
+  // Extract parent folders ("" means root-level SKILL.md)
+  const skillFolders = skillMdEntries.map((e) => {
+    const lastSlash = e.path.lastIndexOf("/");
+    return lastSlash === -1 ? "" : e.path.substring(0, lastSlash);
+  });
+
+  // 3. SINGLE SKILL.md SHORTCUT (~90% of repos have only one skill)
+  if (skillFolders.length === 1) {
+    return { folderPath: skillFolders[0], error: null };
   }
 
-  // Strategy 3: Check if any folder contains the skillId as a substring (broadest)
-  const allDirs = tree.filter((e) => e.type === "tree").map((e) => e.path);
-  const substringMatch = allDirs
-    .filter((p) => {
-      const name = p.split("/").pop() || "";
-      return name.length > 3 && (skillId.includes(name) || name.includes(skillId));
-    })
-    .sort((a, b) => b.length - a.length);
+  // 4. MULTIPLE SKILL.md — FUZZY MATCH by token overlap + substring bonus
+  const skillIdTokens = new Set(skillId.split("-").filter(Boolean));
 
-  if (substringMatch.length > 0) {
-    // Verify it actually has a SKILL.md inside
-    const candidate = substringMatch[0];
-    const hasSkillMd = tree.some(
-      (e) => e.type === "blob" && (e.path === `${candidate}/SKILL.md` || e.path === `${candidate}/skill.md`)
-    );
-    if (hasSkillMd) {
-      return { folderPath: candidate, error: null };
+  const candidates = skillFolders.map((folderPath) => {
+    const folderName = folderPath.split("/").pop() || "";
+    const folderTokens = new Set(folderName.split("-").filter(Boolean));
+
+    const commonTokens = new Set([...folderTokens].filter((t) => skillIdTokens.has(t)));
+    let score = commonTokens.size / Math.max(folderTokens.size, skillIdTokens.size);
+
+    if (skillId.includes(folderName) || folderName.includes(skillId)) {
+      score = Math.min(score + 0.5, 1.0);
     }
+
+    return { folderPath, folderName, score };
+  });
+
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+
+  if (best.score >= 0.30) {
+    return { folderPath: best.folderPath, error: null };
   }
 
-  return { folderPath: null, error: "Skill folder not found in repository" };
+  return {
+    folderPath: null,
+    error: `No matching skill folder found (best match: ${best.folderName} at ${Math.round(best.score * 100)}%)`,
+  };
 }
 
 async function fetchFolderContents(source, path) {
@@ -204,7 +185,7 @@ async function fetchSkillDetails(skillId) {
   const skillName = parts.slice(2).join("/");
 
   const { folderPath, error: findError } = await findSkillFolder(source, skillName);
-  if (findError || !folderPath) {
+  if (findError || folderPath === null || folderPath === undefined) {
     return { id: skillId, files: [], error: findError ?? "Skill folder not found" };
   }
 
@@ -227,7 +208,7 @@ async function fetchSkillDetails(skillId) {
 
 const server = new McpServer({
   name: "mcp-skills-as-context",
-  version: "1.0.3",
+  version: "1.0.4",
 });
 
 server.tool(
