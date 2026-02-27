@@ -56,28 +56,79 @@ Fetch the full file contents for up to 10 skills at once from their GitHub repos
 
 Returns every file in each skill's folder — SKILL.md, reference configs, templates, the lot. **Pass many IDs at once** for richer context.
 
-## Quick Start
+## Installation
+
+The fastest way to install is with [`install-mcp`](https://github.com/nichochar/install-mcp):
 
 ### Claude Desktop
 
-Add to your `claude_desktop_config.json`:
+```bash
+npx install-mcp mcp-skills-as-context --client claude-desktop
+```
+
+### Cursor
+
+```bash
+npx install-mcp mcp-skills-as-context --client cursor
+```
+
+### VS Code
+
+```bash
+npx install-mcp mcp-skills-as-context --client vscode
+```
+
+### Claude Code
+
+```bash
+npx install-mcp mcp-skills-as-context --client claude-code
+```
+
+### Other Clients
+
+```bash
+# Windsurf
+npx install-mcp mcp-skills-as-context --client windsurf
+
+# Cline / Roo-Cline
+npx install-mcp mcp-skills-as-context --client cline
+npx install-mcp mcp-skills-as-context --client roo-cline
+
+# Zed
+npx install-mcp mcp-skills-as-context --client zed
+
+# Codex (OpenAI)
+npx install-mcp mcp-skills-as-context --client codex
+
+# Goose
+npx install-mcp mcp-skills-as-context --client goose
+
+# Warp
+npx install-mcp mcp-skills-as-context --client warp
+
+# Gemini CLI
+npx install-mcp mcp-skills-as-context --client gemini-cli
+
+# Aider
+npx install-mcp mcp-skills-as-context --client aider
+```
+
+### Manual Setup
+
+Add to your client's MCP config (e.g., `claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
-    "skills": {
-      "url": "https://mcp-skills-as-context.mcp.run/sse"
+    "skills-as-context": {
+      "command": "npx",
+      "args": ["mcp-skills-as-context"],
+      "env": {
+        "GITHUB_TOKENS": "your-github-pat-1,your-github-pat-2"
+      }
     }
   }
 }
-```
-
-### Any MCP Client
-
-Point your client at the SSE endpoint:
-
-```
-https://mcp-skills-as-context.mcp.run/sse
 ```
 
 ### Environment Variables
@@ -92,7 +143,8 @@ GitHub tokens are optional but recommended — without them you'll hit rate limi
 ## Development
 
 ```bash
-cd skills-mcp-server
+git clone https://github.com/yigitkonur/mcp-skills-as-context.git
+cd mcp-skills-as-context
 npm install
 npm run dev
 # Inspector at http://localhost:3000/inspector
