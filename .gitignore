@@ -42,3 +42,8 @@ Thumbs.db
 *.swo
 *~
 
+
+# Skills/agent config (auto-installed, not source)
+.agent/
+.claude/
+.cursor/
