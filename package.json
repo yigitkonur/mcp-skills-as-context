@@ -1,7 +1,7 @@
 {
   "name": "mcp-skills-as-context",
   "type": "module",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "MCP server that searches skills.sh and fetches skill files from GitHub — turn thousands of AI skill files into rich context for your coding agents",
   "author": "Yigit Konur",
   "license": "MIT",
@@ -13,8 +13,12 @@
   "bugs": {
     "url": "https://github.com/yigitkonur/mcp-skills-as-context/issues"
   },
+  "bin": {
+    "mcp-skills-as-context": "./src/stdio.mjs"
+  },
   "files": [
     "dist",
+    "src",
     "public",
     "index.ts",
     "tsconfig.json",
@@ -41,6 +45,7 @@
     "deploy": "mcp-use deploy"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@openai/apps-sdk-ui": "^0.2.1",
     "@tanstack/react-query": "^5.90.21",
     "cors": "^2.8.6",
