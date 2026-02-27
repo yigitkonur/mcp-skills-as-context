@@ -1,7 +1,7 @@
 {
   "name": "mcp-skills-as-context",
   "type": "module",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "MCP server that searches skills.sh and fetches skill files from GitHub — turn thousands of AI skill files into rich context for your coding agents",
   "author": "Yigit Konur",
   "license": "MIT",

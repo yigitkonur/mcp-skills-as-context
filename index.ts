@@ -139,7 +139,14 @@ server.tool(
 // Tool 2: get-skill-details — helpers
 // ---------------------------------------------------------------------------
 
-/** Use the Git Trees API to locate a skill folder at any depth in the repo. */
+/**
+ * Use the Git Trees API to locate a skill folder at any depth in the repo.
+ *
+ * skills.sh skillIds often differ from actual folder names (e.g. skillId
+ * "understanding-tauri-architecture" vs folder "tauri/tauri-architecture"),
+ * so we use a multi-strategy approach: exact → fuzzy via SKILL.md parents →
+ * substring with SKILL.md verification.
+ */
 async function findSkillFolder(
   source: string,
   skillId: string
@@ -162,26 +169,91 @@ async function findSkillFolder(
   }
 
   const data: any = await resp.json();
-  const tree: any[] = data.tree ?? [];
+  const tree: Array<{ type: string; path: string }> = data.tree ?? [];
 
-  // Match entries where the last path component equals skillId
-  const candidates = tree
+  // Strategy 1: Exact match — last path component equals skillId
+  const exact = tree
     .filter(
-      (entry: any) =>
-        entry.type === "tree" &&
-        (entry.path === skillId || entry.path.endsWith(`/${skillId}`))
+      (e) =>
+        e.type === "tree" &&
+        (e.path === skillId || e.path.endsWith(`/${skillId}`))
     )
-    .map((entry: any) => entry.path as string);
-
-  if (candidates.length === 0) {
-    return { folderPath: null, error: "Skill folder not found in repository" };
+    .map((e) => e.path);
+  if (exact.length > 0) {
+    return {
+      folderPath: exact.reduce((a, b) => (a.length <= b.length ? a : b)),
+      error: null,
+    };
   }
 
-  // Prefer shortest path (most direct match)
-  const folderPath = candidates.reduce((a, b) =>
-    a.length <= b.length ? a : b
+  // Strategy 2: SKILL.md parent folder fuzzy match (substring + token overlap)
+  const skillMdEntries = tree.filter(
+    (e) => e.type === "blob" && /\/SKILL\.md$/i.test(e.path)
   );
-  return { folderPath, error: null };
+  const fuzzyMatches: Array<{ path: string; folderName: string; score: number }> = [];
+  const skillTokens = new Set(skillId.split("-").filter(Boolean));
+
+  for (const entry of skillMdEntries) {
+    const parentPath = entry.path.replace(/\/SKILL\.md$/i, "");
+    const folderName = parentPath.split("/").pop() || "";
+
+    // Substring containment (fast path)
+    if (
+      skillId.endsWith(folderName) ||
+      folderName.endsWith(skillId) ||
+      skillId.includes(folderName) ||
+      folderName.includes(skillId)
+    ) {
+      fuzzyMatches.push({ path: parentPath, folderName, score: folderName.length + 100 });
+      continue;
+    }
+
+    // Token-overlap: if ALL folder tokens exist in skillId tokens, it's a match
+    const folderTokens = folderName.split("-").filter(Boolean);
+    if (folderTokens.length >= 2 && folderTokens.every((t) => skillTokens.has(t))) {
+      fuzzyMatches.push({ path: parentPath, folderName, score: folderTokens.length * 10 });
+      continue;
+    }
+
+    // Partial token overlap: ≥60% of folder tokens match AND ≥2 common tokens
+    if (folderTokens.length >= 2) {
+      const common = folderTokens.filter((t) => skillTokens.has(t));
+      if (common.length >= 2 && common.length / folderTokens.length >= 0.6) {
+        fuzzyMatches.push({ path: parentPath, folderName, score: common.length });
+      }
+    }
+  }
+  if (fuzzyMatches.length > 0) {
+    fuzzyMatches.sort((a, b) => b.score - a.score);
+    return { folderPath: fuzzyMatches[0].path, error: null };
+  }
+
+  // Strategy 3: Substring match on directory names, verified by SKILL.md
+  const substringMatch = tree
+    .filter((e) => e.type === "tree")
+    .map((e) => e.path)
+    .filter((p) => {
+      const name = p.split("/").pop() || "";
+      return (
+        name.length > 3 &&
+        (skillId.includes(name) || name.includes(skillId))
+      );
+    })
+    .sort((a, b) => b.length - a.length);
+  if (substringMatch.length > 0) {
+    const candidate = substringMatch[0];
+    const hasSkillMd = tree.some(
+      (e) =>
+        e.type === "blob" &&
+        (e.path === `${candidate}/SKILL.md` ||
+          e.path === `${candidate}/skill.md`)
+    );
+    if (hasSkillMd) {
+      return { folderPath: candidate, error: null };
+    }
+  }
+
+  return { folderPath: null, error: "Skill folder not found in repository" };
 }
 
 /** Fetch the contents of a GitHub directory via the Contents API. */
